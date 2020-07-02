@@ -7190,7 +7190,7 @@ function _update_term_count_on_transition_post_status( $new_status, $old_status,
 	foreach ( (array) get_object_taxonomies( $post->post_type ) as $taxonomy ) {
 		$tt_ids = wp_get_object_terms( $post->ID, $taxonomy, array( 'fields' => 'tt_ids' ) );
 
-		$countable_status = apply_filters( 'countable_status', [ 'publish' ] );
+		$countable_status = apply_filters( 'countable_status', [ 'publish' ], $taxonomy );
 
 		$count_new = in_array( $new_status, $countable_status, true );
 		$count_old = in_array( $old_status, $countable_status, true );

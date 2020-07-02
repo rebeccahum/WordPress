@@ -3710,7 +3710,7 @@ function _handle_term_relationship_change( $object_id, $tt_ids, $taxonomy, $tran
 	$post = get_post( $object_id );
 
 	if ( ( ! $post || ! is_object_in_taxonomy( $post->post_type, $taxonomy ) ) ||
-		in_array( get_post_status( $post ), apply_filters( 'countable_status', [ 'publish' ] ), true ) ) {
+		in_array( get_post_status( $post ), apply_filters( 'countable_status', [ 'publish' ], $taxonomy ), true ) ) {
 		// We use `get_post_status()` to check if parent status is 'inherit'.
 		wp_quick_update_term_count( $object_id, $tt_ids, $taxonomy, $transition );
 	} else {
