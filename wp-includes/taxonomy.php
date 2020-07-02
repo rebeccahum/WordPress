@@ -3149,6 +3149,99 @@ function wp_update_term_count( $terms, $taxonomy, $do_deferred = false ) {
 }
 
 /**
+ * Uses an increment/decrement system to perform term count.
+ *
+ * @since 5.5
+ *
+ * @param array  $terms           The term_taxonomy_id of terms to update.
+ * @param string $taxonomy        The context of the term.
+ * @param string $transition_type Accepts either 'increment' or 'decrement' value.
+ * @return true Always true when complete.
+ */
+function wp_quick_update_term_count( $terms, $taxonomy, $transition_type ) {
+	$terms = array_map( 'intval', $terms );
+
+	$taxonomy = get_taxonomy( $taxonomy );
+	if ( ! empty( $taxonomy->update_count_callback ) ) {
+		call_user_func( $taxonomy->update_count_callback, $terms, $taxonomy );
+	} elseif ( ! empty( $terms )) {
+		$tt_ids_string = '(' . implode( ',', $terms ) . ')';
+
+		if ( 'increment' === $transition_type ) {
+			// Incrementing.
+			$update_query = $wpdb->prepare( "UPDATE {$wpdb->term_taxonomy} AS tt SET tt.count = tt.count + 1 WHERE tt.term_taxonomy_id IN %s", $tt_ids_string );
+		} else {
+			// Decrementing.
+			$update_query = $wpdb->prepare( "UPDATE {$wpdb->term_taxonomy} AS tt SET tt.count = tt.count - 1 WHERE tt.term_taxonomy_id IN %s AND tt.count > 0", $tt_ids_string );
+		}
+
+		foreach ( $terms as $term ) {
+			/** This action is documented in wp-includes/taxonomy.php */
+			do_action( 'edit_term_taxonomy', $term, $taxonomy );
+		}
+
+		$wpdb->query( $update_query ); // WPCS: unprepared SQL ok.
+		foreach ( $terms as $term ) {
+			/** This action is documented in wp-includes/taxonomy.php */
+			do_action( 'edited_term_taxonomy', $term, $taxonomy );
+		}
+	}
+
+	clean_term_cache( $terms, '', false );
+
+	return true;
+}
+
+/**
+ * When a term relationship is added, increment the term count.
+ *
+ * @since 5.5
+ *
+* @param int    $object_id Object ID.
+* @param int    $tt_id     Single term taxonomy ID.
+* @param string $taxonomy  Taxonomy slug.
+ */
+function wp_increment_term_relationship( $object_id, $tt_id, $taxonomy ) {
+	_handle_term_relationship_change( $object_id, (array) $tt_id, $taxonomy, 'increment' );
+}
+
+/**
+ * When a term relationship is added, decrement the term count.
+ *
+ * @since 5.5
+ *
+* @param int    $object_id Object ID.
+* @param int    $tt_id     Single term taxonomy ID.
+* @param string $taxonomy  Taxonomy slug.
+ */
+function wp_decrement_term_relationship( $object_id, $tt_id, $taxonomy ) {
+	_handle_term_relationship_change( $object_id, (array) $tt_id, $taxonomy, 'decrement' );
+}
+
+/**
+ * Force-recount posts for a term.  Do this only when the update originates from the edit term screen.
+ *
+ * @since 5.5
+ * 
+ * @param  int    $term_id the term id.
+ * @param  int    $tt_id the term taxonomy id.
+ * @param  string $taxonomy the taxonomy.
+ *
+ * @return bool false if the screen check fails, true otherwise
+ */
+function maybe_recount_posts_for_term( $term_id, $tt_id, $taxonomy ) {
+	$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : '';
+	if ( ! ( $screen instanceof WP_Screen ) ) {
+		return false;
+	}
+	if ( "edit-$taxonomy" === $screen->id ) {
+		wp_update_term_count_now( [ $tt_id ], $taxonomy );
+	}
+	return true;
+}
+
+
+/**
  * Perform term count update immediately.
  *
  * @since 2.5.0
@@ -3598,6 +3691,30 @@ function _get_term_children( $term_id, $terms, $taxonomy, &$ancestors = array() 
 
 	return $term_list;
 }
+
+/**
+ * Update term counts when term relationships are added or deleted.
+ *
+ * @access private
+ * @since 5.5
+ *
+ * @param int    $object_id  Object ID.
+ * @param array  $tt_ids     Array of term taxonomy IDs.
+ * @param string $taxonomy   Taxonomy slug.
+ * @param string $transition Transition (increment or decrement).
+ */
+function _handle_term_relationship_change( $object_id, $tt_ids, $taxonomy, $transition ) {
+	$post = get_post( $object_id );
+
+	if ( ( ! $post || ! is_object_in_taxonomy( $post->post_type, $taxonomy ) ) ||
+		in_array( get_post_status( $post ), apply_filters( 'countable_status', [ 'publish' ] ), true ) ) {
+		// We use `get_post_status()` to check if parent status is 'inherit'.
+		wp_quick_update_term_count( $object_id, $tt_ids, $taxonomy, $transition );
+	} else {
+		clean_term_cache( $tt_ids, $taxonomy, false );
+	}
+}
+
 
 /**
  * Add count of children to parent count.
